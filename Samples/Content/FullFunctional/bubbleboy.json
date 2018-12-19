@@ -1,0 +1,554 @@
+﻿{
+  "Outputs": {
+    "WebApi": {
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-WebApi" } },
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+            ".execute-api.",
+            { "Ref": "AWS::Region" },
+            ".amazonaws.com/Prod/api/"
+          ]
+        ]
+      }
+    }
+  },
+  "Parameters": {
+    "DatabaseStack": {
+      "Default": "pipeline-database-master-deploy",
+      "Type": "String"
+    },
+    "WebApiBucket": { "Type": "String" },
+    "BubbleBoyFunctionsBucket": { "Type": "String" },
+    "BatchSize": {
+      "Default": "500",
+      "Type": "String"
+    },
+    "NetworkStack": {
+      "Default": "pipeline-network-master-deploy",
+      "Type": "String"
+    },
+    "DbBranch": {
+      "Default": "master",
+      "Type": "String"
+    },
+    "WebApiKey": { "Type": "String" },
+    "BubbleBoyFunctionsKey": { "Type": "String" }
+  },
+  "Resources": {
+    "FunctionsProductMakerMakeUpdateProductsByKitTypeIdLambdaExecutionRole1": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AWSLambdaFullAccess", "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole" ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Action": [ "sts:AssumeRole" ],
+            "Effect": "Allow",
+            "Principal": { "Service": [ "lambda.amazonaws.com" ] }
+          }
+        }
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AWSLambdaFullAccess", "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole" ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": [ "sts:AssumeRole" ],
+              "Effect": "Allow",
+              "Principal": { "Service": [ "lambda.amazonaws.com" ] }
+            }
+          ]
+        }
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncGETResourcePermissionProd": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "FunctionName": { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/GET/*",
+            {
+              "__Stage__": "Prod",
+              "__ApiId__": { "Ref": "ServerlessRestApi" }
+            }
+          ]
+        }
+      }
+    },
+    "FunctionsAmazonLibraryMakeListingsLambdaExecutionRole1": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AmazonS3FullAccess", "arn:aws:iam::aws:policy/AWSLambdaFullAccess", "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole" ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Action": [ "sts:AssumeRole" ],
+            "Effect": "Allow",
+            "Principal": { "Service": [ "lambda.amazonaws.com" ] }
+          }
+        }
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsync": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": { "Ref": "WebApiBucket" },
+          "S3Key": { "Ref": "WebApiKey" }
+        },
+        "VpcConfig": {
+          "SubnetIds": [ { "Fn::ImportValue": { "Fn::Sub": "${NetworkStack}-PrivateSubnet1" } } ],
+          "SecurityGroupIds": [ { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-DbGroup" } } ]
+        },
+        "Tags": [
+          {
+            "Value": "SAM",
+            "Key": "lambda:createdBy"
+          }
+        ],
+        "Environment": {
+          "Variables": {
+            "ServerName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-RdsEndpointAddress" } },
+            "DatabaseUserName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUsername" } },
+            "BranchName": { "Ref": "DbBranch" },
+            "Password": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUserPassword" } }
+          }
+        },
+        "Handler": "WebApi::WebApi.LambdaEntryPoint::FunctionHandlerAsync",
+        "Role": { "Fn::GetAtt": [ "WebApiLambdaEntryPointFunctionHandlerAsyncRole", "Arn" ] },
+        "Timeout": 300,
+        "Runtime": "dotnetcore2.1"
+      }
+    },
+    "ServerlessRestApi": {
+      "Type": "AWS::ApiGateway::RestApi",
+      "Properties": {
+        "Body": {
+          "info": {
+            "version": "1.0",
+            "title": { "Ref": "AWS::StackName" }
+          },
+          "paths": {
+            "/{proxy+}": {
+              "put": {
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "type": "aws_proxy",
+                  "uri": { "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebApiLambdaEntryPointFunctionHandlerAsync.Arn}/invocations" }
+                },
+                "responses": {}
+              },
+              "post": {
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "type": "aws_proxy",
+                  "uri": { "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebApiLambdaEntryPointFunctionHandlerAsync.Arn}/invocations" }
+                },
+                "responses": {}
+              },
+              "get": {
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "type": "aws_proxy",
+                  "uri": { "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebApiLambdaEntryPointFunctionHandlerAsync.Arn}/invocations" }
+                },
+                "responses": {}
+              }
+            }
+          },
+          "swagger": "2.0"
+        }
+      }
+    },
+    "FunctionsAcesImportNewFileUploaded": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": { "Ref": "BubbleBoyFunctionsBucket" },
+          "S3Key": { "Ref": "BubbleBoyFunctionsKey" }
+        },
+        "DeadLetterConfig": { "TargetArn": { "Fn::GetAtt": [ "FunctionsAcesImportNewFileUploadedQueue1", "Arn" ] } },
+        "VpcConfig": {
+          "SubnetIds": [ { "Fn::ImportValue": { "Fn::Sub": "${NetworkStack}-PrivateSubnet1" } } ],
+          "SecurityGroupIds": [ { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-DbGroup" } } ]
+        },
+        "ReservedConcurrentExecutions": 4,
+        "MemorySize": 1024,
+        "Environment": {
+          "Variables": {
+            "BatchSize": { "Ref": "BatchSize" },
+            "DatabaseUserName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUsername" } },
+            "BranchName": { "Ref": "DbBranch" },
+            "ServerName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-RdsEndpointAddress" } },
+            "Password": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUserPassword" } }
+          }
+        },
+        "Handler": "BubbleBoy.Functions::Functions.AcesImport::NewFileUploaded",
+        "Role": { "Fn::GetAtt": [ "FunctionsAcesImportNewFileUploadedLambdaExecutionRole1", "Arn" ] },
+        "Timeout": 300,
+        "Runtime": "dotnetcore2.1"
+      },
+      "DependsOn": [ "FunctionsAcesImportNewFileUploadedQueue1" ]
+    },
+    "BucketForFunctionsShippingEasyProcessorNewFileUploadedAsync": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "NotificationConfiguration": {
+          "QueueConfigurations": [],
+          "LambdaConfigurations": [
+            {
+              "Function": { "Fn::GetAtt": [ "FunctionsShippingEasyProcessorNewFileUploadedAsync", "Arn" ] },
+              "Filter": {
+                "S3Key": {
+                  "Rules": [
+                    {
+                      "Name": "suffix",
+                      "Value": ".csv"
+                    }
+                  ]
+                }
+              },
+              "Event": "s3:ObjectCreated:*"
+            }
+          ],
+          "TopicConfigurations": []
+        },
+        "VersioningConfiguration": { "Status": "Suspended" }
+      },
+      "DependsOn": [ "FunctionsShippingEasyProcessorNewFileUploadedAsyncNewFileUploadedAsyncPermission" ]
+    },
+    "FunctionsAcesImportNewFileUploadedQueue1": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::SQS::Queue",
+      "Properties": {}
+    },
+    "FunctionsOrdoroSyncOrdersLambdaExecutionRole1": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AWSLambdaFullAccess", "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole" ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Action": [ "sts:AssumeRole" ],
+            "Effect": "Allow",
+            "Principal": { "Service": [ "lambda.amazonaws.com" ] }
+          }
+        }
+      }
+    },
+    "FunctionsAmazonLibraryMakeListings": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": { "Ref": "BubbleBoyFunctionsBucket" },
+          "S3Key": { "Ref": "BubbleBoyFunctionsKey" }
+        },
+        "VpcConfig": {
+          "SubnetIds": [ { "Fn::ImportValue": { "Fn::Sub": "${NetworkStack}-PrivateSubnet1" } } ],
+          "SecurityGroupIds": [ { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-DbGroup" } } ]
+        },
+        "Environment": {
+          "Variables": {
+            "ServerName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-RdsEndpointAddress" } },
+            "DatabaseUserName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUsername" } },
+            "BranchName": { "Ref": "DbBranch" },
+            "Password": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUserPassword" } }
+          }
+        },
+        "Handler": "BubbleBoy.Functions::Functions.AmazonLibrary::MakeListings",
+        "Role": { "Fn::GetAtt": [ "FunctionsAmazonLibraryMakeListingsLambdaExecutionRole1", "Arn" ] },
+        "Timeout": 300,
+        "Runtime": "dotnetcore2.1"
+      }
+    },
+    "FunctionsOrdoroSyncOrders": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": { "Ref": "BubbleBoyFunctionsBucket" },
+          "S3Key": { "Ref": "BubbleBoyFunctionsKey" }
+        },
+        "VpcConfig": {
+          "SubnetIds": [ { "Fn::ImportValue": { "Fn::Sub": "${NetworkStack}-PrivateSubnet1" } } ],
+          "SecurityGroupIds": [ { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-DbGroup" } } ]
+        },
+        "Environment": {
+          "Variables": {
+            "ServerName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-RdsEndpointAddress" } },
+            "DatabaseUserName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUsername" } },
+            "BranchName": { "Ref": "DbBranch" },
+            "Password": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUserPassword" } }
+          }
+        },
+        "Handler": "BubbleBoy.Functions::Functions.Ordoro::SyncOrders",
+        "Role": { "Fn::GetAtt": [ "FunctionsOrdoroSyncOrdersLambdaExecutionRole1", "Arn" ] },
+        "Timeout": 300,
+        "Runtime": "dotnetcore2.1"
+      }
+    },
+    "ServerlessRestApiDeployment7d54fc9d14": {
+      "Type": "AWS::ApiGateway::Deployment",
+      "Properties": {
+        "RestApiId": { "Ref": "ServerlessRestApi" },
+        "Description": "RestApi deployment id: 7d54fc9d14a807c42aefa0a80b962c8b26e56edd",
+        "StageName": "Stage"
+      }
+    },
+    "FunctionsAcesImportNewFileUploadedLambdaExecutionRole1": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AmazonS3FullAccess", "arn:aws:iam::aws:policy/AWSLambdaFullAccess", "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole" ],
+        "Policies": [
+          {
+            "PolicyName": "SendMessage",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Action": [ "sqs:SendMessage" ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                }
+              ]
+            }
+          }
+        ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Action": [ "sts:AssumeRole" ],
+            "Effect": "Allow",
+            "Principal": { "Service": [ "lambda.amazonaws.com" ] }
+          }
+        }
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncPUTResourcePermissionTest": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "FunctionName": { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/PUT/*",
+            {
+              "__Stage__": "*",
+              "__ApiId__": { "Ref": "ServerlessRestApi" }
+            }
+          ]
+        }
+      }
+    },
+    "ServerlessRestApiProdStage": {
+      "Type": "AWS::ApiGateway::Stage",
+      "Properties": {
+        "DeploymentId": { "Ref": "ServerlessRestApiDeployment7d54fc9d14" },
+        "RestApiId": { "Ref": "ServerlessRestApi" },
+        "StageName": "Prod"
+      }
+    },
+    "FunctionsShippingEasyProcessorNewFileUploadedAsync": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": { "Ref": "BubbleBoyFunctionsBucket" },
+          "S3Key": { "Ref": "BubbleBoyFunctionsKey" }
+        },
+        "VpcConfig": {
+          "SubnetIds": [ { "Fn::ImportValue": { "Fn::Sub": "${NetworkStack}-PrivateSubnet1" } } ],
+          "SecurityGroupIds": [ { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-DbGroup" } } ]
+        },
+        "Tags": [
+          {
+            "Value": "SAM",
+            "Key": "lambda:createdBy"
+          }
+        ],
+        "Environment": {
+          "Variables": {
+            "ServerName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-RdsEndpointAddress" } },
+            "DatabaseUserName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUsername" } },
+            "BranchName": { "Ref": "DbBranch" },
+            "Password": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUserPassword" } }
+          }
+        },
+        "Handler": "BubbleBoy.Functions::Functions.ShippingEasyProcessor::NewFileUploadedAsync",
+        "Role": { "Fn::GetAtt": [ "FunctionsShippingEasyProcessorNewFileUploadedAsyncRole", "Arn" ] },
+        "Timeout": 300,
+        "Runtime": "dotnetcore2.1"
+      }
+    },
+    "BucketForFunctionsAcesImportNewFileUploaded": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "NotificationConfiguration": {
+          "TopicConfigurations": [],
+          "LambdaConfigurations": [
+            {
+              "Function": { "Fn::GetAtt": [ "FunctionsAcesImportNewFileUploaded", "Arn" ] },
+              "Event": "s3:ObjectCreated:*"
+            }
+          ],
+          "QueueConfigurations": []
+        },
+        "VersioningConfiguration": { "Status": "Suspended" }
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncPOSTResourcePermissionTest": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "FunctionName": { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/POST/*",
+            {
+              "__Stage__": "*",
+              "__ApiId__": { "Ref": "ServerlessRestApi" }
+            }
+          ]
+        }
+      }
+    },
+    "FunctionsShippingEasyProcessorNewFileUploadedAsyncNewFileUploadedAsyncPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "SourceAccount": { "Ref": "AWS::AccountId" },
+        "FunctionName": { "Ref": "FunctionsShippingEasyProcessorNewFileUploadedAsync" },
+        "Principal": "s3.amazonaws.com"
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncPUTResourcePermissionProd": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "FunctionName": { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/PUT/*",
+            {
+              "__Stage__": "Prod",
+              "__ApiId__": { "Ref": "ServerlessRestApi" }
+            }
+          ]
+        }
+      }
+    },
+    "FunctionsProductMakerMakeUpdateProductsByKitTypeId": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": { "Ref": "BubbleBoyFunctionsBucket" },
+          "S3Key": { "Ref": "BubbleBoyFunctionsKey" }
+        },
+        "VpcConfig": {
+          "SubnetIds": [ { "Fn::ImportValue": { "Fn::Sub": "${NetworkStack}-PrivateSubnet1" } } ],
+          "SecurityGroupIds": [ { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-DbGroup" } } ]
+        },
+        "MemorySize": 3008,
+        "Environment": {
+          "Variables": {
+            "ServerName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-RdsEndpointAddress" } },
+            "DatabaseUserName": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUsername" } },
+            "BranchName": { "Ref": "DbBranch" },
+            "Password": { "Fn::ImportValue": { "Fn::Sub": "${DatabaseStack}-MasterUserPassword" } }
+          }
+        },
+        "Handler": "BubbleBoy.Functions::Functions.ProductMaker::MakeUpdateProductsByKitTypeId",
+        "Role": { "Fn::GetAtt": [ "FunctionsProductMakerMakeUpdateProductsByKitTypeIdLambdaExecutionRole1", "Arn" ] },
+        "Timeout": 300,
+        "Runtime": "dotnetcore2.1"
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncPOSTResourcePermissionProd": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "FunctionName": { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/POST/*",
+            {
+              "__Stage__": "Prod",
+              "__ApiId__": { "Ref": "ServerlessRestApi" }
+            }
+          ]
+        }
+      }
+    },
+    "FunctionsAcesImportNewFileUploadedPermission1": {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": { "Fn::GetAtt": [ "FunctionsAcesImportNewFileUploaded", "Arn" ] },
+        "Principal": "s3.amazonaws.com"
+      }
+    },
+    "FunctionsShippingEasyProcessorNewFileUploadedAsyncRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess", "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole" ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": [ "sts:AssumeRole" ],
+              "Effect": "Allow",
+              "Principal": { "Service": [ "lambda.amazonaws.com" ] }
+            }
+          ]
+        }
+      }
+    },
+    "WebApiLambdaEntryPointFunctionHandlerAsyncGETResourcePermissionTest": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "FunctionName": { "Ref": "WebApiLambdaEntryPointFunctionHandlerAsync" },
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/GET/*",
+            {
+              "__Stage__": "*",
+              "__ApiId__": { "Ref": "ServerlessRestApi" }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [],
+      "ParameterLabels": {}
+    }
+  }
+}
